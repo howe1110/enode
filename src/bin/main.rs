@@ -1,11 +1,13 @@
-use ppgw::ENode;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use rand::Rng;
+extern crate ppgw;
+use ppgw::node::Node;
 
-fn send2peer(paras: &[&str], loc: &ENode) -> bool {
+
+fn send2peer(paras: &[&str], loc: &Node) -> bool {
     if paras.len() != 2 {
         return false;
     }
@@ -18,11 +20,11 @@ fn send2peer(paras: &[&str], loc: &ENode) -> bool {
     true
 }
 
-fn init_user_fn() -> HashMap<String, fn(&[&str], &ENode) -> bool> {
+fn init_user_fn() -> HashMap<String, fn(&[&str], &Node) -> bool> {
     let mut userfn = HashMap::new();
     userfn.insert(
         String::from("sendto"),
-        send2peer as fn(&[&str], &ENode) -> bool,
+        send2peer as fn(&[&str], &Node) -> bool,
     );
     userfn
 }
@@ -35,7 +37,7 @@ fn main() {
 
     let addr = format!("{}:{}","127.0.0.1",port_number);
     println!("Server start on {}.", addr);
-    let mut server = ENode::new(2, addr);
+    let mut server = Node::new(2, addr);
 
     server.start();
 

@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use rand::Rng;
+use std::sync::Arc;
+
 extern crate ppgw;
 use ppgw::node::Node;
 
@@ -37,9 +39,8 @@ fn main() {
 
     let addr = format!("{}:{}","127.0.0.1",port_number);
     println!("Server start on {}.", addr);
-    let mut server = Node::new(2, addr);
 
-    server.start();
+    
 
     loop {
         let mut input = String::new();
@@ -56,9 +57,9 @@ fn main() {
         let paras: Vec<&str> = input.split_whitespace().collect();
 
         println!("user function is {}", paras[0]);
-
+/* 
         if let Some(pfn) = userfns.get(paras[0]) {
             pfn(&paras[1..paras.len()], &server);
-        }
+        } */
     }
 }

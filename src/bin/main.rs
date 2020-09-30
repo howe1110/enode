@@ -1,32 +1,32 @@
+use rand::Rng;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, Write};
 use std::net::SocketAddr;
-use rand::Rng;
 use std::sync::Arc;
 
 extern crate ppgw;
 use ppgw::node::Node;
+use ppgw::NodeShell::NodeShell;
 
-
-fn send2peer(paras: &[&str], loc: &Node) -> bool {
-    if paras.len() != 2 {
+fn send2peer(paras: &[&str], loc: &mut NodeShell) -> bool {
+    if paras.len() != 1 {
         return false;
     }
-    
-    println!("{}:{}", paras[0], paras[1]);
 
     if let Ok(peer) = paras[0].parse::<SocketAddr>() {
         println!("{:?}", peer);
     }
+
+    loc.peer = Some(String::from(paras[0]));
     true
 }
 
-fn init_user_fn() -> HashMap<String, fn(&[&str], &Node) -> bool> {
+fn init_user_fn() -> HashMap<String, fn(&[&str], &mut NodeShell) -> bool> {
     let mut userfn = HashMap::new();
     userfn.insert(
-        String::from("sendto"),
-        send2peer as fn(&[&str], &Node) -> bool,
+        String::from("sw"),
+        send2peer as fn(&[&str], &mut NodeShell) -> bool,
     );
     userfn
 }
@@ -37,14 +37,16 @@ fn main() {
     let userfns = init_user_fn();
     let port_number = rand::thread_rng().gen_range(30000, 40000);
 
-    let addr = format!("{}:{}","127.0.0.1",port_number);
+    let addr = format!("{}:{}", "127.0.0.1", port_number);
     println!("Server start on {}.", addr);
 
-    
+    let mut nodeshell = NodeShell::new(2, addr);
 
     loop {
         let mut input = String::new();
-        println!("Please input your guess.");
+
+        print!("==={}>", nodeshell.peer.as_ref().unwrap_or(&String::from("")));
+        io::stdout().flush().unwrap();
 
         io::stdin()
             .read_line(&mut input)
@@ -56,10 +58,16 @@ fn main() {
         }
         let paras: Vec<&str> = input.split_whitespace().collect();
 
-        println!("user function is {}", paras[0]);
-/* 
+        if paras.len() == 0 {
+            continue;
+        }
+
         if let Some(pfn) = userfns.get(paras[0]) {
-            pfn(&paras[1..paras.len()], &server);
-        } */
+            println!("user function is {}", paras[0]);
+            pfn(&paras[1..paras.len()], &mut nodeshell);
+            continue;
+        }
+
+        nodeshell.sendmessage(input);
     }
 }

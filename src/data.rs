@@ -1,0 +1,1 @@
+pub const UserMessage:u16 = 1024;

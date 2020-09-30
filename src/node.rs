@@ -20,8 +20,6 @@ pub struct Node {
     socket: UdpSocket,
     sender: Arc<Mutex<mpsc::Sender<Notify>>>,
     pub workers: Vec<Worker>,
-    thread: Option<thread::JoinHandle<()>>,
-    thread_check: Option<thread::JoinHandle<()>>,
     send_cache: Arc<Mutex<HashMap<SocketAddr, MessageCacher>>>,
     recv_cache: Arc<Mutex<HashMap<SocketAddr, MessageCacher>>>,
 }
@@ -47,25 +45,9 @@ impl Node {
             socket: st,
             sender,
             workers,
-            thread: None,
-            thread_check: None,
             send_cache,
             recv_cache,
         }
-    }
-
-    pub fn start<A: ToSocketAddrs>(size: usize, addr: A) {
-        let my = Arc::new(Node::new(size, addr));
-
-        let for_receive = my.clone();
-        let recv_handle = std::thread::spawn(move || {
-            for_receive.start_receive();
-        });
-
-        let for_check = my.clone();
-        let check_handle = std::thread::spawn(move || {
-            for_check.start_check();
-        });
     }
 
     fn on_receive<R: BufRead + Seek>(
@@ -139,7 +121,7 @@ impl Node {
             println!("ack msgstate {}", msgstate);
             match msgstate {
                 0 => {
-                    message.cache.clear();
+                    send_cache.remove_entry(&src_addr);
                 } //接收完成
                 1 => {
                     let offsetnum = reader.read_u32::<BigEndian>().unwrap(); //分片数
@@ -213,7 +195,7 @@ impl Node {
         }
     }
 
-    fn start_check(&self) {
+    pub fn start_check(&self) {
         loop {
             thread::sleep(std::time::Duration::from_millis(10));
 
@@ -236,9 +218,11 @@ impl Node {
 
     fn stop(&mut self) {
         println!("Sending terminate message to all workers.");
-        /*         for _ in &mut self.workers {
-            self.sender.send(Notify::Terminate).unwrap();
-        } */
+
+        let sender = self.sender.lock().unwrap();
+        for _ in &mut self.workers {
+            sender.send(Notify::Terminate).unwrap();
+        }
 
         println!("Shutting down all workers.");
 
@@ -279,7 +263,6 @@ impl Node {
         &self,
         message: &Message,
         addr: &str,
-        send_cache: Arc<Mutex<HashMap<SocketAddr, MessageCacher>>>,
     ) {
         let mut flags = DATA;
         let data: Vec<u8> = bincode::serialize(message).unwrap();
@@ -287,10 +270,14 @@ impl Node {
         let len: usize = data.len();
         let mut eof = 0;
 
-        let mut send_cache = send_cache.lock().unwrap();
+        let mut send_cache = self.send_cache.lock().unwrap();
+
+        println!("{}", addr);
+
         let cache = send_cache
             .entry(addr.parse().unwrap())
             .or_insert(MessageCacher::new(123));
+
         let offsets = cache.get_mut_offsets();
         loop {
             if MAXPACKETLEN >= (len - eof) {

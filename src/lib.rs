@@ -12,6 +12,7 @@ pub mod messagecacher;
 pub mod node;
 pub mod NodeShell;
 pub mod data;
+pub mod stats;
 
 
 

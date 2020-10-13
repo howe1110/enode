@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 
 use crate::message::Message;
-use crate::data::UserMessage;
+use crate::data::USERMESSAGE;
 
 pub enum Notify {
     NewJob { x: SocketAddr, y: Message },
@@ -24,7 +24,7 @@ impl Worker {
 
             match notify {
                 Notify::NewJob { x, y } => {
-                    println!("Worker {} got a job; executing.", id);
+                    //println!("Worker {} got a job; executing.", id);
                     Worker::handle_message(x, &y);
                 }
                 Notify::Terminate => {
@@ -41,9 +41,8 @@ impl Worker {
     }
 
     fn handle_message(x: SocketAddr, y: &Message) {
-        println!("handle message {:?} from {:?}", y, x);
         match y.mstype {
-            UserMessage => println!("receive message: {:?}", String::from_utf8(y.msgdata.to_owned()).unwrap()),
+            USERMESSAGE => (),
             _ => (),
         }
     }

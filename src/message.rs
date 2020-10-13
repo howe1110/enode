@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::data::UserMessage;
+use crate::data::USERMESSAGE;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Message {
@@ -12,7 +12,7 @@ pub struct Message {
 impl Message {
     pub fn create_man_message(message:&str) -> Message {
         Message {
-            mstype:UserMessage,
+            mstype:USERMESSAGE,
             msglen:message.len() as u16,
             msgdata:message.as_bytes().to_vec(),
         }

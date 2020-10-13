@@ -7,14 +7,23 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
+use std::result::Result;
 
 use time::Duration;
 use time::PreciseTime;
 
 use crate::message::Message;
-use crate::messagecacher::MessageCacher;
+use crate::messagecacher::{new_message_no, MessageCacher};
 use crate::packet::{ACK, DATA, DATAEOF, MAXPACKETLEN};
+use crate::stats::Stats;
 use crate::worker::{Notify, Worker};
+
+
+const WAITTIME: i64 = 5;
+
+pub enum SendError {
+    Block,
+}
 
 pub struct Node {
     socket: UdpSocket,
@@ -22,6 +31,7 @@ pub struct Node {
     pub workers: Vec<Worker>,
     send_cache: Arc<Mutex<HashMap<SocketAddr, MessageCacher>>>,
     recv_cache: Arc<Mutex<HashMap<SocketAddr, MessageCacher>>>,
+    stats: Arc<Mutex<Stats>>,
 }
 
 impl Node {
@@ -40,6 +50,7 @@ impl Node {
 
         let send_cache = Arc::new(Mutex::new(HashMap::new()));
         let recv_cache = Arc::new(Mutex::new(HashMap::new()));
+        let stats = Arc::new(Mutex::new(Stats::new()));
 
         Node {
             socket: st,
@@ -47,6 +58,7 @@ impl Node {
             workers,
             send_cache,
             recv_cache,
+            stats,
         }
     }
 
@@ -96,6 +108,8 @@ impl Node {
                 })
                 .unwrap();
         }
+        let mut stats = self.stats.lock().unwrap();
+        stats.receive_increase(src_addr);
     }
 
     fn handle_ctrl_packet<R: BufRead + Seek>(
@@ -104,7 +118,6 @@ impl Node {
         flag: u16,
         reader: &mut R,
     ) {
-        println!("Handle ctrl packet.");
         match flag {
             ACK => self.handle_data_ack(src_addr, flag, reader),
             _ => (),
@@ -112,13 +125,11 @@ impl Node {
     }
 
     fn handle_data_ack<R: BufRead + Seek>(&self, src_addr: SocketAddr, flag: u16, reader: &mut R) {
-        println!("Handle Ack.");
         let mut send_cache = self.send_cache.lock().unwrap();
         if let Some(message) = send_cache.get_mut(&src_addr) {
             let msgno = reader.read_u32::<BigEndian>().unwrap(); //消息号
-            println!("ack msgno {}", msgno);
             let msgstate = reader.read_u8().unwrap(); //接收状态
-            println!("ack msgstate {}", msgstate);
+            println!("ack msgno {}, msgstate {}", msgno, msgstate);
             match msgstate {
                 0 => {
                     send_cache.remove_entry(&src_addr);
@@ -135,6 +146,7 @@ impl Node {
                 _ => (),
             }
         } else {
+            println!("addr {:?} not found.", src_addr);
         }
     }
 
@@ -156,7 +168,6 @@ impl Node {
         }
         let vec = writer.into_inner();
         self.socket.send_to(&vec[0..vec.len()], addr).unwrap();
-        println!("Send response.");
     }
 
     fn send_active(&self, addr: SocketAddr, message: &MessageCacher) {
@@ -209,7 +220,7 @@ impl Node {
             //
             let recv_cache = self.recv_cache.lock().unwrap();
             for (k, v) in recv_cache.iter() {
-                if v.start.to(PreciseTime::now()) > Duration::seconds(30) {
+                if v.start.to(PreciseTime::now()) > Duration::seconds(WAITTIME) {
                     self.send_resp(*k, v);
                 }
             }
@@ -248,7 +259,6 @@ impl Node {
         let mut writer = Cursor::new(buf);
         writer.write_u16::<BigEndian>(flags).unwrap(); //flags
         writer.write_u16::<BigEndian>(data.len() as u16).unwrap(); //length
-        println!("write flag {}", flags);
         writer.write_u32::<BigEndian>(msgno).unwrap(); //msgno
         writer.write_u32::<BigEndian>(offset as u32).unwrap(); //offset
         writer.write_u32::<BigEndian>(ts).unwrap(); //ts
@@ -259,24 +269,39 @@ impl Node {
         self.socket.send_to(&vec[0..vec.len()], addr);
     }
 
-    pub fn send_message(
-        &self,
-        message: &Message,
-        addr: &str,
-    ) {
+
+    pub fn send_usermessage(&self, message: &Message, addr: &str) {
+        let mut try_times = 100;
+        while  try_times > 0 {
+            try_times -= 1;
+            if let Err(SendError::Block) = self.send_message(message, addr) {
+                thread::sleep(std::time::Duration::from_millis(0));
+            } else {
+                break;
+            }
+        }
+        return;
+    }
+
+    fn send_message(&self, message: &Message, addr: &str) -> Result<(), SendError> {
         let mut flags = DATA;
         let data: Vec<u8> = bincode::serialize(message).unwrap();
         let mut offset: usize = 0;
         let len: usize = data.len();
         let mut eof = 0;
 
+        let socket_addr = addr.parse::<SocketAddr>().unwrap();
+
         let mut send_cache = self.send_cache.lock().unwrap();
 
-        println!("{}", addr);
+        if send_cache.contains_key(&socket_addr) {
+            return Err(SendError::Block);
+        }
 
         let cache = send_cache
-            .entry(addr.parse().unwrap())
-            .or_insert(MessageCacher::new(123));
+            .entry(socket_addr)
+            .or_insert(MessageCacher::new(new_message_no()));
+        let message_number = cache.msgno;
 
         let offsets = cache.get_mut_offsets();
         loop {
@@ -286,8 +311,7 @@ impl Node {
             } else {
                 eof += MAXPACKETLEN;
             }
-            println!("flag: {}, offset: {}, eof:{}", flags, offset, eof);
-            self.send_packet_data(flags, 0, offset, 0, &data[offset..eof], addr);
+            self.send_packet_data(flags, message_number, offset, 0, &data[offset..eof], addr);
             offsets.insert(offset);
             offset = eof;
             if offset == len {
@@ -295,6 +319,12 @@ impl Node {
             }
         }
         cache.eof = eof;
+
+        let mut stats = self.stats.lock().unwrap();
+        stats.send_increase(addr.parse().unwrap());
+
+        println!("send message msgno {}.", message_number);
+        Ok(())
     }
 
     pub fn send_data<R: BufRead + Seek>(
@@ -304,10 +334,26 @@ impl Node {
         send_cache: Arc<Mutex<HashMap<SocketAddr, MessageCacher>>>,
     ) {
     }
+
+    pub fn receive_count(&self, addr: &str) -> usize {
+        return self
+            .stats
+            .lock()
+            .unwrap()
+            .receive_count(addr.parse().unwrap());
+    }
 }
 
 impl Drop for Node {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        assert_eq!(2 + 2, 4);
     }
 }

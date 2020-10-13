@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use std::io::prelude::*;
 use std::io::Cursor;
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
+use std::result::Result;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use std::result::Result;
 
 use time::Duration;
 use time::PreciseTime;
@@ -18,8 +18,7 @@ use crate::packet::{ACK, DATA, DATAEOF, MAXPACKETLEN};
 use crate::stats::Stats;
 use crate::worker::{Notify, Worker};
 
-
-const WAITTIME: i64 = 5;
+const WAITTIME: i64 = 1;
 
 pub enum SendError {
     Block,
@@ -182,11 +181,15 @@ impl Node {
             }
             self.send_packet_data(
                 flags,
-                0,
+                message.msgno,
                 *offset,
                 0,
                 message.get_data(*offset, eof),
                 addr.to_string().as_str(),
+            );
+            println!(
+                "Resend packet msgno {}, offset {} .",
+                message.msgno, *offset
             );
         }
     }
@@ -209,19 +212,20 @@ impl Node {
     pub fn start_check(&self) {
         loop {
             thread::sleep(std::time::Duration::from_millis(10));
-
             //请求重发
-            let send_cache = self.send_cache.lock().unwrap();
-            for (k, v) in send_cache.iter() {
-                if v.start.to(PreciseTime::now()) > Duration::seconds(30) {
+            let mut send_cache = self.send_cache.lock().unwrap();
+            for (k, v) in send_cache.iter_mut() {
+                if v.start.to(PreciseTime::now()) > Duration::seconds(WAITTIME + 1) {
                     self.send_active(*k, v);
+                    v.start = PreciseTime::now();
                 }
             }
             //
-            let recv_cache = self.recv_cache.lock().unwrap();
-            for (k, v) in recv_cache.iter() {
+            let mut recv_cache = self.recv_cache.lock().unwrap();
+            for (k, v) in recv_cache.iter_mut() {
                 if v.start.to(PreciseTime::now()) > Duration::seconds(WAITTIME) {
                     self.send_resp(*k, v);
+                    v.start = PreciseTime::now();
                 }
             }
         }
@@ -269,10 +273,9 @@ impl Node {
         self.socket.send_to(&vec[0..vec.len()], addr);
     }
 
-
     pub fn send_usermessage(&self, message: &Message, addr: &str) {
         let mut try_times = 100;
-        while  try_times > 0 {
+        while try_times > 0 {
             try_times -= 1;
             if let Err(SendError::Block) = self.send_message(message, addr) {
                 thread::sleep(std::time::Duration::from_millis(0));
@@ -352,8 +355,8 @@ impl Drop for Node {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
+    fn resend_works() {}
 }

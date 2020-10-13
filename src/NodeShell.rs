@@ -65,19 +65,19 @@ mod tests {
 
     const TESTSTRING:&str = "102321312321321321434325098dsfljfldsjflk34jridsfjdlsjfldsfj034234980-32423jldsjflsdjfldsjfldsjfldsjfldsjfldsjfldjfdlfjdlkfjdlfjdlskfjdlfjdlsfjdlfjdsfjdsfjdlfjdlfjdlfjdljfdlkfjlkdjfkldjflkdjfkdjfdsjf";
     #[test]
-    fn send_10_k_message() {
+    fn send_1_k_message() {
         let locaddr = String::from("127.0.0.1:35100");
         let peeraddr = String::from("127.0.0.1:35200");
         let mut loc = NodeShell::new(2, locaddr.clone());
         let mut peer = NodeShell::new(1, peeraddr.clone());
         loc.peer = Some(peeraddr);
         peer.peer = Some(locaddr.clone());
-        for _ in 0..10240 {
+        for _ in 0..1024 {
             loc.sendmessage(TESTSTRING);
         }
 
-        thread::sleep(std::time::Duration::from_millis(1000));
+        thread::sleep(std::time::Duration::from_millis(60*1000));
 
-        assert_eq!(peer.node.receive_count(locaddr.as_str()), 10240);
+        assert_eq!(peer.node.receive_count(locaddr.as_str()), 1024);
     }
 }

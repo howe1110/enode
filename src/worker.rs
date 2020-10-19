@@ -15,16 +15,17 @@ pub enum Notify {
 pub struct Worker {
     pub id: usize,
     pub thread: Option<thread::JoinHandle<()>>,
+    pub socket: UdpSocket,
 }
 
 impl Worker {
+    #[warn(unused_variables)]
     pub fn new(id: usize, st: UdpSocket, receiver: Arc<Mutex<mpsc::Receiver<Notify>>>) -> Worker {
         let thread = thread::spawn(move || loop {
             let notify = receiver.lock().unwrap().recv().unwrap();
 
             match notify {
                 Notify::NewJob { x, y } => {
-                    //println!("Worker {} got a job; executing.", id);
                     Worker::handle_message(x, &y);
                 }
                 Notify::Terminate => {
@@ -37,12 +38,12 @@ impl Worker {
         Worker {
             id,
             thread: Some(thread),
+            socket:st,
         }
     }
 
     fn handle_message(x: SocketAddr, y: &Message) {
         match y.mstype {
-            USERMESSAGE => (),
             _ => (),
         }
     }

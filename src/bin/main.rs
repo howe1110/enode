@@ -3,11 +3,9 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 extern crate ppgw;
-use ppgw::node::Node;
-use ppgw::NodeShell::NodeShell;
+use ppgw::node_shell::NodeShell;
 
 fn send2peer(paras: &[&str], loc: &mut NodeShell) -> bool {
     if paras.len() != 1 {

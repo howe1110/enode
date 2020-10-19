@@ -10,7 +10,7 @@ pub mod packet;
 pub mod worker;
 pub mod messagecacher;
 pub mod node;
-pub mod NodeShell;
+pub mod node_shell;
 pub mod data;
 pub mod stats;
 

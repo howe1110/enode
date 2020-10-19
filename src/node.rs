@@ -2,12 +2,14 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::collections::HashMap;
 use std::io::prelude::*;
 use std::io::Cursor;
+use std::io::Result as IoResult;
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::result::Result;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
+use std::time::Duration as stdDuration;
 
 use time::Duration;
 use time::PreciseTime;
@@ -36,6 +38,7 @@ pub struct Node {
 impl Node {
     pub fn new<A: ToSocketAddrs>(size: usize, addr: A) -> Node {
         let st = UdpSocket::bind(addr).expect("couldn't bind to address");
+        let result = st.set_read_timeout(Some(stdDuration::new(0, 1000000)));
 
         let (sender, receiver) = mpsc::channel();
         let sender = Arc::new(Mutex::new(sender));
@@ -61,15 +64,10 @@ impl Node {
         }
     }
 
-    fn on_receive<R: BufRead + Seek>(
-        &self,
-        src_addr: SocketAddr,
-        reader: &mut R,
-        sender: mpsc::Sender<Notify>,
-    ) {
+    fn on_receive<R: BufRead + Seek>(&self, src_addr: SocketAddr, reader: &mut R) {
         let flag = reader.read_u16::<BigEndian>().unwrap();
         match flag >> 15 {
-            0 => self.handle_data_packet(src_addr, flag, reader, sender),
+            0 => self.handle_data_packet(src_addr, flag, reader),
             1 => self.handle_ctrl_packet(src_addr, flag, reader),
             _ => (),
         }
@@ -80,12 +78,11 @@ impl Node {
         src_addr: SocketAddr,
         flag: u16,
         reader: &mut R,
-        sender: mpsc::Sender<Notify>,
     ) {
         let len = reader.read_u16::<BigEndian>().unwrap();
         let msgno = reader.read_u32::<BigEndian>().unwrap();
         let offset = reader.read_u32::<BigEndian>().unwrap();
-        let ts = reader.read_u32::<BigEndian>().unwrap();
+        let _ts = reader.read_u32::<BigEndian>().unwrap();
         let mut recv_cache = self.recv_cache.lock().unwrap();
         let message = recv_cache
             .entry(src_addr)
@@ -98,7 +95,15 @@ impl Node {
         if message.complete == false {
             return;
         }
+
+        message.start = PreciseTime::now();
+        
+        let sender = self.sender.lock().unwrap();
+
         self.send_resp(src_addr, &message);
+
+        println!("Send response msgno {}", msgno);
+
         if let Some((_, v)) = recv_cache.remove_entry(&src_addr) {
             sender
                 .send(Notify::NewJob {
@@ -123,12 +128,11 @@ impl Node {
         }
     }
 
-    fn handle_data_ack<R: BufRead + Seek>(&self, src_addr: SocketAddr, flag: u16, reader: &mut R) {
+    fn handle_data_ack<R: BufRead + Seek>(&self, src_addr: SocketAddr, _flag: u16, reader: &mut R) {
         let mut send_cache = self.send_cache.lock().unwrap();
         if let Some(message) = send_cache.get_mut(&src_addr) {
             let msgno = reader.read_u32::<BigEndian>().unwrap(); //消息号
             let msgstate = reader.read_u8().unwrap(); //接收状态
-            println!("ack msgno {}, msgstate {}", msgno, msgstate);
             match msgstate {
                 0 => {
                     send_cache.remove_entry(&src_addr);
@@ -178,8 +182,9 @@ impl Node {
                 flags = DATAEOF;
             } else {
                 eof = *offset + MAXPACKETLEN;
+                flags = DATA;
             }
-            self.send_packet_data(
+            let result = self.send_packet_data(
                 flags,
                 message.msgno,
                 *offset,
@@ -187,6 +192,10 @@ impl Node {
                 message.get_data(*offset, eof),
                 addr.to_string().as_str(),
             );
+            match result {
+                Ok(_) => (),
+                Err(_) => (),
+            }
             println!(
                 "Resend packet msgno {}, offset {} .",
                 message.msgno, *offset
@@ -197,43 +206,39 @@ impl Node {
     pub fn start_receive(&self) {
         let mut buf: [u8; 4096] = [0; 4096];
 
-        let sender = self.sender.lock().unwrap();
+        let result = self.socket.recv_from(&mut buf);
 
-        loop {
-            let (l, src_addr) = self
-                .socket
-                .recv_from(&mut buf)
-                .expect("Didn't receive data");
-            let packet: &[u8] = &buf[0..l];
-            self.on_receive(src_addr, &mut Cursor::new(packet), sender.clone());
+        match result {
+            Ok((l, src_addr)) => {
+                let packet: &[u8] = &buf[0..l];
+                self.on_receive(src_addr, &mut Cursor::new(packet));
+            }
+            Err(_) => (),
         }
     }
 
     pub fn start_check(&self) {
-        loop {
-            thread::sleep(std::time::Duration::from_millis(10));
-            //请求重发
-            let mut send_cache = self.send_cache.lock().unwrap();
-            for (k, v) in send_cache.iter_mut() {
-                if v.start.to(PreciseTime::now()) > Duration::seconds(WAITTIME + 1) {
-                    self.send_active(*k, v);
-                    v.start = PreciseTime::now();
-                }
+        //请求重发
+        let mut send_cache = self.send_cache.lock().unwrap();
+        for (k, v) in send_cache.iter_mut() {
+            if v.start.to(PreciseTime::now()) > Duration::seconds(WAITTIME + 1) {
+                self.send_active(*k, v);
+                v.start = PreciseTime::now();
             }
-            //
-            let mut recv_cache = self.recv_cache.lock().unwrap();
-            for (k, v) in recv_cache.iter_mut() {
-                if v.start.to(PreciseTime::now()) > Duration::seconds(WAITTIME) {
-                    self.send_resp(*k, v);
-                    v.start = PreciseTime::now();
-                }
+        }
+
+        let mut recv_cache = self.recv_cache.lock().unwrap();
+        for (k, v) in recv_cache.iter_mut() {
+            if v.start.to(PreciseTime::now()) > Duration::seconds(WAITTIME) {
+                self.send_resp(*k, v);
+                v.start = PreciseTime::now();
             }
         }
     }
 
-    fn stop(&mut self) {
+    pub fn stop(&mut self) {
+        //
         println!("Sending terminate message to all workers.");
-
         let sender = self.sender.lock().unwrap();
         for _ in &mut self.workers {
             sender.send(Notify::Terminate).unwrap();
@@ -258,7 +263,7 @@ impl Node {
         ts: u32,
         data: &[u8],
         addr: &str,
-    ) {
+    ) -> IoResult<usize> {
         let buf = vec![];
         let mut writer = Cursor::new(buf);
         writer.write_u16::<BigEndian>(flags).unwrap(); //flags
@@ -270,7 +275,7 @@ impl Node {
         writer.write(data).unwrap();
         let vec = writer.into_inner();
 
-        self.socket.send_to(&vec[0..vec.len()], addr);
+        self.socket.send_to(&vec[0..vec.len()], addr)
     }
 
     pub fn send_usermessage(&self, message: &Message, addr: &str) {
@@ -313,8 +318,17 @@ impl Node {
                 flags = DATAEOF;
             } else {
                 eof += MAXPACKETLEN;
+                flags = DATA;
             }
-            self.send_packet_data(flags, message_number, offset, 0, &data[offset..eof], addr);
+            let result =
+                self.send_packet_data(flags, message_number, offset, 0, &data[offset..eof], addr);
+            match result {
+                Ok(_s) => (),
+                Err(e) => {
+                    println!("{}", e);
+                } //Record data, resend by timer checker later.
+            }
+
             offsets.insert(offset);
             offset = eof;
             if offset == len {
@@ -322,6 +336,7 @@ impl Node {
             }
         }
         cache.eof = eof;
+        cache.start = PreciseTime::now();
 
         let mut stats = self.stats.lock().unwrap();
         stats.send_increase(addr.parse().unwrap());
@@ -330,20 +345,16 @@ impl Node {
         Ok(())
     }
 
-    pub fn send_data<R: BufRead + Seek>(
-        &self,
-        reader: &mut R,
-        addr: &str,
-        send_cache: Arc<Mutex<HashMap<SocketAddr, MessageCacher>>>,
-    ) {
-    }
-
     pub fn receive_count(&self, addr: &str) -> usize {
         return self
             .stats
             .lock()
             .unwrap()
             .receive_count(addr.parse().unwrap());
+    }
+
+    pub fn send_count(&self, addr: &str) -> usize {
+        return self.stats.lock().unwrap().send_count(addr.parse().unwrap());
     }
 }
 

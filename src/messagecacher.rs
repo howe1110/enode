@@ -1,36 +1,35 @@
-use std::collections::HashSet;
-use time::PreciseTime;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::sync::Mutex;
+use time::PreciseTime;
 
 use crate::message::Message;
-use crate::packet::{DATAEOF};
+use crate::packet::DATAEOF;
 
 pub const MAXMESSAGELEN: usize = 65536;
 
-pub static mut MSGNO:u32 = 0;
+pub static mut MSGNO: u32 = 0;
 
 pub fn new_message_no() -> u32 {
-    unsafe{MSGNO = MSGNO + 1};
-    unsafe{MSGNO}
+    unsafe { MSGNO = MSGNO + 1 };
+    unsafe { MSGNO }
 }
 
+#[derive(Clone)]
 pub struct MessageCacher {
-    pub msgno:u32,
+    pub msgno: u32,
     pub complete: bool,
     pub start: PreciseTime,
     data: [u8; MAXMESSAGELEN],
     pub offset: usize, //最小偏移
     pub eof: usize,    //终点值
     pub seen: usize,   //已接收的总值
-    pub cache:HashSet<usize>,
-    pub mutex:Mutex<bool>,
+    pub cache: HashSet<usize>,
 }
 
 impl MessageCacher {
-    pub fn new(msgno:u32) -> MessageCacher {
+    pub fn new(msgno: u32) -> MessageCacher {
         let cache = HashSet::new();
-        let mutex = Mutex::new(false);
         MessageCacher {
             msgno,
             complete: false,
@@ -40,13 +39,7 @@ impl MessageCacher {
             eof: 0,
             seen: 0,
             cache,
-            mutex,
         }
-    }
-
-    pub fn block(&self) -> bool {
-        let x = self.mutex.lock().unwrap();
-        return *x;
     }
 
     pub fn get_buf(&mut self, offset: usize) -> &mut [u8] {
@@ -57,8 +50,12 @@ impl MessageCacher {
         &self.data[offset..eof]
     }
 
-
     pub fn end_write(&mut self, offset: usize, size: usize, flag: u16) {
+        if self.cache.contains(&offset) {
+            return;
+        }
+
+        self.cache.insert(offset);
         self.seen += size;
 
         if flag == DATAEOF {
@@ -73,8 +70,6 @@ impl MessageCacher {
             self.complete = true;
             return;
         }
-
-        self.cache.insert(offset);
     }
 
     pub fn sha256(&self) -> String {
@@ -93,7 +88,7 @@ impl MessageCacher {
         message
     }
 
-    pub fn get_offsets(& self) -> &HashSet<usize> {
+    pub fn get_offsets(&self) -> &HashSet<usize> {
         &self.cache
     }
 

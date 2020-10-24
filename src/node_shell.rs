@@ -1,42 +1,35 @@
-use crate::message::Message;
-use crate::node::Node;
-
-use std::net::ToSocketAddrs;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::mpsc::{self, sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::thread;
-use std::sync::atomic::AtomicBool;
+
+use crate::emessage::EMessage;
+use crate::message::Message;
+use crate::node::{ConnectEvent, Node};
 
 pub struct NodeShell {
-    pub node: Arc<Node>,
-    recv_handle: Option<thread::JoinHandle<()>>,
-    check_handle: Option<thread::JoinHandle<()>>,
     pub peer: Option<String>,
+    sender: SyncSender<ConnectEvent>,
+    connections: HashMap<SocketAddr, SyncSender<Message>>,
+    handle: thread::JoinHandle<()>,
 }
 
 impl NodeShell {
-    pub fn new<A: ToSocketAddrs>(size: usize, addr: A) -> NodeShell {
-        let node = Arc::new(Node::new(size, addr));
-
-        let mut running = AtomicBool::new(true);
-
-
-        let for_receive = node.clone();
-        let recv_handle = std::thread::spawn(move || loop {
-            for_receive.start_receive();
+    pub fn new(size: usize, addr: String) -> NodeShell {
+        let (sender, receiver) = sync_channel(0);
+        let handle = std::thread::spawn(move || {
+            let mut node = Node::new(size, addr, receiver);
+            node.start_polling();
         });
 
-        let for_check = node.clone();
-        let check_handle = std::thread::spawn(move || loop {
-            thread::sleep(std::time::Duration::from_millis(10));
-            for_check.start_check();
-        });
+        let connections = HashMap::new();
 
         NodeShell {
-            node,
-            recv_handle: Some(recv_handle),
-            check_handle: Some(check_handle),
             peer: None,
+            sender,
+            connections,
+            handle,
         }
     }
 
@@ -44,10 +37,17 @@ impl NodeShell {
         self.peer = Some(String::from(peer));
     }
 
-    pub fn sendmessage(&self, messsage: &str) {
-        if let Some(peer) = self.peer.as_ref() {
-            let message = Message::create_man_message(messsage);
-            self.node.send_usermessage(&message, peer.as_str());
+    pub fn sendmessage(&mut self, user_message: &str, addr: SocketAddr) {
+        if !self.connections.contains_key(&addr) {
+            let (message_sender, message_receiver) = sync_channel(0);
+            let connect = ConnectEvent::new(addr, message_receiver);
+            self.sender.send(connect);
+            self.connections.insert(addr, message_sender);
+        }
+        let connection = self.connections.get(&addr);
+        if let Some(sender) = connection.as_ref() {
+            let message = Message::create_man_message(user_message);
+            sender.send(message);
         }
     }
 
@@ -55,37 +55,24 @@ impl NodeShell {
 }
 
 impl Drop for NodeShell {
-    fn drop(&mut self) {
-        if let Some(handle) = self.recv_handle.take() {
-            //handle.join().unwrap();
-        }
-        if let Some(handle) = self.check_handle.take() {
-            //handle.join().unwrap();
-        }
-    }
+    fn drop(&mut self) {}
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    const SERVER_ADDR1: &'static str = "127.0.0.1:30022";
+    const SERVER_ADDR2: &'static str = "127.0.0.1:30023";
 
-    const TESTSTRING:&str = "102321312321321321434325098dsfljfldsjflk34jridsfjdlsjfldsfj034234980-32423jldsjflsdjfldsjfldsjfldsjfldsjfldsjfldjfdlfjdlkfjdlfjdlskfjdlfjdlsfjdlfjdsfjdsfjdlfjdlfjdlfjdljfdlkfjlkdjfkldjflkdjfkdjfdsjf";
+    const TESTSTRING:&'static str = "102321312321321321434325098dsfljfldsjflk34jridsfjdlsjfldsfj034234980-32423jldsjflsdjfldsjfldsjfldsjfldsjfldsjfldjfdlfjdlkfjdlfjdlskfjdlfjdlsfjdlfjdsfjdsfjdlfjdlfjdlfjdljfdlkfjlkdjfkldjflkdjfkdjfdsjf";
     #[test]
     fn send_1_k_message() {
-        {
-            let locaddr = String::from("127.0.0.1:35100");
-            let peeraddr = String::from("127.0.0.1:35200");
-            let mut loc = NodeShell::new(2, locaddr.clone());
-            let mut peer = NodeShell::new(1, peeraddr.clone());
-            loc.peer = Some(peeraddr.clone());
-            peer.peer = Some(locaddr.clone());
+        let mut node_1 = NodeShell::new(2, SERVER_ADDR1.parse().unwrap());
 
-            println!("Test string len {}", TESTSTRING.len());
-            for _ in 0.. {
-                loc.sendmessage(TESTSTRING);
-            }
-            thread::sleep(std::time::Duration::from_millis(10000));
-            assert_eq!(peer.node.receive_count(locaddr.as_str()), loc.node.send_count(peeraddr.as_str()));
+        for _ in 0..10240 {
+            node_1.sendmessage(TESTSTRING, SERVER_ADDR2.parse().unwrap());
         }
+
+        thread::sleep_ms(50000);
     }
 }

@@ -1,11 +1,11 @@
 use std::net::{SocketAddr, UdpSocket};
-use std::thread;
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::mpsc;
+use std::thread;
 
-use crate::message::Message;
 use crate::data::USERMESSAGE;
+use crate::message::Message;
 
 pub enum Notify {
     NewJob { x: SocketAddr, y: Message },
@@ -23,6 +23,7 @@ impl Worker {
     pub fn new(id: usize, st: UdpSocket, receiver: Arc<Mutex<mpsc::Receiver<Notify>>>) -> Worker {
         let thread = thread::spawn(move || loop {
             let notify = receiver.lock().unwrap().recv().unwrap();
+            
 
             match notify {
                 Notify::NewJob { x, y } => {
@@ -38,7 +39,7 @@ impl Worker {
         Worker {
             id,
             thread: Some(thread),
-            socket:st,
+            socket: st,
         }
     }
 

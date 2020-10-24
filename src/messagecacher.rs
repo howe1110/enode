@@ -15,12 +15,14 @@ pub fn new_message_no() -> u32 {
     unsafe { MSGNO }
 }
 
+enum CacheStat {}
 #[derive(Clone)]
 pub struct MessageCacher {
     pub msgno: u32,
     pub complete: bool,
     pub start: PreciseTime,
-    data: [u8; MAXMESSAGELEN],
+    //data: [u8; MAXMESSAGELEN],
+    pub data: Box<Vec<u8>>,
     pub offset: usize, //最小偏移
     pub eof: usize,    //终点值
     pub seen: usize,   //已接收的总值
@@ -28,13 +30,15 @@ pub struct MessageCacher {
 }
 
 impl MessageCacher {
-    pub fn new(msgno: u32) -> MessageCacher {
+    pub fn new() -> MessageCacher {
         let cache = HashSet::new();
+        let mut data = Box::new(Vec::with_capacity(MAXMESSAGELEN));
+        data.resize(MAXMESSAGELEN, 0);
         MessageCacher {
-            msgno,
-            complete: false,
+            msgno: 0,
+            complete: true,
             start: PreciseTime::now(),
-            data: [0; MAXMESSAGELEN],
+            data,
             offset: 0,
             eof: 0,
             seen: 0,
@@ -94,5 +98,21 @@ impl MessageCacher {
 
     pub fn get_mut_offsets(&mut self) -> &mut HashSet<usize> {
         &mut self.cache
+    }
+
+    pub fn reset(&mut self) {
+        self.msgno = 0;
+        self.complete = true;
+        self.start = PreciseTime::now();
+        self.offset = 0;
+        self.eof = 0;
+        self.seen = 0;
+        self.cache.clear();
+    }
+
+    pub fn new_message(&mut self, msgno: u32) {
+        self.reset();
+        self.msgno = msgno;
+        self.complete = false;
     }
 }

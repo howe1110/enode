@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 
 extern crate ppgw;
 use ppgw::node_shell::NodeShell;
+const SERVER_ADDR2: &'static str = "127.0.0.1:30023";
 
 fn send2peer(paras: &[&str], loc: &mut NodeShell) -> bool {
     if paras.len() != 1 {
@@ -33,12 +34,8 @@ fn main() {
     println!("Hello, world!");
 
     let userfns = init_user_fn();
-    let port_number = rand::thread_rng().gen_range(30000, 40000);
 
-    let addr = format!("{}:{}", "127.0.0.1", port_number);
-    println!("Server start on {}.", addr);
-
-    let mut nodeshell = NodeShell::new(2, addr);
+    let mut nodeshell = NodeShell::new(2, SERVER_ADDR2.parse().unwrap());
 
     loop {
         let mut input = String::new();
@@ -65,7 +62,5 @@ fn main() {
             pfn(&paras[1..paras.len()], &mut nodeshell);
             continue;
         }
-
-        nodeshell.sendmessage(input);
     }
 }

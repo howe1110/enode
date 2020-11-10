@@ -1,20 +1,13 @@
 use std::collections::HashMap;
-use std::io::prelude::*;
 use std::io::Cursor;
-use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
-use std::rc::Rc;
-use std::sync::mpsc::{self, sync_channel, Receiver, SyncSender, TryRecvError};
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::thread::{self, yield_now};
+use std::net::{SocketAddr, UdpSocket};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::thread::yield_now;
 
 use crate::connection::Connection;
-use crate::emessage::EMessage;
-use crate::message::Message;
-use crate::stats::Stats;
-use crate::worker::{Notify, Worker};
-
-const WAITTIME: i64 = 1;
+use crate::connection::TrySendResult;
+use crate::message::MessagePtr;
+use crate::worker::Notify;
 
 pub enum SendError {
     Block,
@@ -24,116 +17,159 @@ pub enum ConnectError {
     AllReadyExist,
 }
 
+pub enum HandleNodeEventResult {
+    Block,
+    Exit,
+}
+
+pub enum NodeReceiveResult {
+    Ok,
+    Block,
+}
+
+pub enum NodeEvent {
+    Connect(ConnectEvent),
+    Terminate,
+}
+
 pub struct ConnectEvent {
+    id: usize,
     addr: SocketAddr,
-    receiver: Receiver<Message>,
+    receiver: Receiver<MessagePtr>,
+}
+
+pub struct UserMessageEvent {
+    id: usize,
+    addr: SocketAddr,
 }
 
 impl ConnectEvent {
-    pub fn new(addr: SocketAddr, receiver: Receiver<Message>) -> ConnectEvent {
-        ConnectEvent { addr, receiver }
+    pub fn new(id: usize, addr: SocketAddr, receiver: Receiver<MessagePtr>) -> ConnectEvent {
+        ConnectEvent { id, addr, receiver }
     }
 }
 pub struct Node {
     socket: UdpSocket,
-    sender: Rc<mpsc::Sender<Notify>>,
-    pub workers: Vec<Worker>,
+    inner_sender: mpsc::Sender<Notify>,
     connections: HashMap<SocketAddr, Connection>,
-    pub connect_receiver: Receiver<ConnectEvent>,
-    stats: Arc<Stats>,
+    pub connect_receiver: Receiver<NodeEvent>,
 }
 
 impl Node {
-    pub fn new<A: ToSocketAddrs>(
-        size: usize,
-        addr: A,
-        connect_receiver: Receiver<ConnectEvent>,
+    pub fn new(
+        addr: SocketAddr,
+        connect_receiver: Receiver<NodeEvent>,
+        inner_sender: Sender<Notify>,
     ) -> Node {
         let st = UdpSocket::bind(addr).expect("couldn't bind to address");
         st.set_nonblocking(true).unwrap();
 
-        let (sender, receiver) = mpsc::channel();
-        let sender = Rc::new(sender);
-        let receiver = Arc::new(Mutex::new(receiver));
-
-        let mut workers = Vec::with_capacity(size);
-        for id in 0..workers.capacity() {
-            println!("create worker {}", id);
-            let cst = st.try_clone().unwrap();
-            workers.push(Worker::new(id, cst, Arc::clone(&receiver)));
-        }
-
         let connections = HashMap::new();
-        let stats = Arc::new(Stats::new());
 
         Node {
             socket: st,
-            sender,
-            workers,
+            inner_sender,
             connections,
-            stats,
             connect_receiver,
         }
     }
 
-    pub fn handle_connect(&mut self) {
-        let result = self.connect_receiver.try_recv();
-        match result {
-            Ok(conn_event) => {
-                let connect = self
-                    .connections
-                    .entry(conn_event.addr)
-                    .or_insert(Connection::new(
-                        self.socket.try_clone().unwrap(),
-                        conn_event.addr,
-                        self.sender.clone(),
-                    ));
-                connect.set_receiver(conn_event.receiver);
-            }
-            Err(e) => {
-                if e != TryRecvError::Empty {
-                    println!("Connection try_recv error {:?} .", e);
+    pub fn start_polling(&mut self) {
+        let mut node_event_idle = false;
+        let mut node_send_idle = false;
+        let mut node_receive_idle = false;
+
+        loop {
+            if let Err(e) = self.handle_node_event() {
+                match e {
+                    HandleNodeEventResult::Exit => {
+                        println!("Node Exit.");
+                        break;
+                    }
+                    HandleNodeEventResult::Block => {
+                        node_event_idle = true;
+                    }
                 }
+            }
+            match self.start_receive() {
+                NodeReceiveResult::Block => {
+                    node_receive_idle = true;
+                }
+                _ => (),
+            }
+            //
+            node_send_idle = self.start_send();
+
+            if node_event_idle && node_send_idle && node_receive_idle {
+                self.start_check();
+                yield_now();
             }
         }
     }
 
-    fn start_receive(&mut self) {
+    fn handle_conn_event(&mut self, id: usize, addr: SocketAddr, receiver: Receiver<MessagePtr>) {
+        let connect = self.connections.entry(addr).or_insert(Connection::new(
+            self.socket.try_clone().unwrap(),
+            addr,
+            self.inner_sender.clone(),
+        ));
+        connect.set_receiver(id, receiver);
+    }
+
+    fn handle_node_event(&mut self) -> Result<(), HandleNodeEventResult> {
+        let result = self.connect_receiver.try_recv();
+        match result {
+            Ok(e) => match e {
+                NodeEvent::Connect(conn) => {
+                    self.handle_conn_event(conn.id, conn.addr, conn.receiver);
+                    Ok(())
+                }
+                NodeEvent::Terminate => Err(HandleNodeEventResult::Exit),
+            },
+            Err(e) => {
+                if e != TryRecvError::Empty {
+                    println!("Connection try_recv error {:?} .", e);
+                }
+                Err(HandleNodeEventResult::Block)
+            }
+        }
+    }
+
+    fn start_receive(&mut self) -> NodeReceiveResult {
         let mut buf: [u8; 4096] = [0; 4096];
         let result = self.socket.recv_from(&mut buf);
 
         match result {
             Ok((l, src_addr)) => {
-                let connect = self.connections.entry(src_addr).or_insert(Connection::new(
-                    self.socket.try_clone().unwrap(),
-                    src_addr,
-                    self.sender.clone(),
-                ));
-                //
                 let packet: &[u8] = &buf[0..l];
-                connect.on_receive(&mut Cursor::new(packet));
-            }
-            Err(e) => {
-                if e.kind() != std::io::ErrorKind::WouldBlock {
-                    println!("Encountered an error receiving data: {:?}", e);
+                if let Some(conn) = self.connections.get_mut(&src_addr) {
+                    conn.on_receive(&mut Cursor::new(packet));
+                } else {
+                    let mut conn = Connection::new(
+                        self.socket.try_clone().unwrap(),
+                        src_addr,
+                        self.inner_sender.clone(),
+                    );
+                    conn.on_receive(&mut Cursor::new(packet));
+                    self.connections.insert(src_addr, conn);
                 }
+                NodeReceiveResult::Ok
+            }
+            Err(_) => NodeReceiveResult::Block,
+        }
+    }
+
+    fn start_send(&mut self) -> bool {
+        let mut is_idle = false;
+        for (_, v) in self.connections.iter_mut() {
+            match v.send() {
+                TrySendResult::Empty => {
+                    is_idle = true;
+                }
+                _ => (),
             }
         }
-    }
-
-    fn start_send(&mut self) {
-        for (_, v) in self.connections.iter_mut() {
-            v.send();
-        }
-    }
-
-    pub fn start_polling(&mut self) {
-        loop {
-            self.start_send();
-            self.handle_connect();
-            self.start_receive();
-            self.start_check();
-        }
+        is_idle
     }
 
     fn start_check(&mut self) {
@@ -143,23 +179,7 @@ impl Node {
         }
     }
 
-    pub fn stop(&mut self) {
-        //
-        println!("Sending terminate message to all workers.");
-        for _ in &mut self.workers {
-            self.sender.send(Notify::Terminate).unwrap();
-        }
-
-        println!("Shutting down all workers.");
-
-        for worker in &mut self.workers {
-            println!("Shutting down worker {}", worker.id);
-
-            if let Some(thread) = worker.thread.take() {
-                thread.join().unwrap();
-            }
-        }
-    }
+    pub fn stop(&mut self) {}
 
     pub fn receive_count(&self, addr: &SocketAddr) -> usize {
         if let Some(conn) = self.connections.get(addr) {
@@ -196,20 +216,5 @@ mod tests {
     }
 
     #[test]
-    fn send_works() {
-        let (sender, receiver) = sync_channel(0);
-        let handle = std::thread::spawn(move || {
-            let mut node = Node::new(2, "127.0.0.1:30020", receiver);
-            node.start_polling();
-        });
-
-        let (message_sender, message_receiver) = sync_channel(0);
-
-        let connect = ConnectEvent::new(server_address(), message_receiver);
-        sender.send(connect);
-        let message = Message::create_man_message("hello world.");
-        message_sender.send(message);
-
-        handle.join().unwrap();
-    }
+    fn send_works() {}
 }

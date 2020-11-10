@@ -1,37 +1,51 @@
-use std::net::{SocketAddr, UdpSocket};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, SyncSender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
-use crate::data::USERMESSAGE;
-use crate::message::Message;
+use crate::command_handler::{CommandHandler,CommandType};
+use crate::message::MessagePtr;
+use crate::node::NodeEvent;
+
+pub enum Source {
+    Local,
+    Peer,
+}
 
 pub enum Notify {
-    NewJob { x: SocketAddr, y: Message },
+    NewJob {
+        y: MessagePtr,
+    },
+    Command(CommandType),
     Terminate,
 }
 
 pub struct Worker {
     pub id: usize,
     pub thread: Option<thread::JoinHandle<()>>,
-    pub socket: UdpSocket,
 }
 
 impl Worker {
     #[warn(unused_variables)]
-    pub fn new(id: usize, st: UdpSocket, receiver: Arc<Mutex<mpsc::Receiver<Notify>>>) -> Worker {
-        let thread = thread::spawn(move || loop {
-            let notify = receiver.lock().unwrap().recv().unwrap();
-            
-
-            match notify {
-                Notify::NewJob { x, y } => {
-                    Worker::handle_message(x, &y);
-                }
-                Notify::Terminate => {
-                    println!("Worker {} was told to terminate.", id);
-                    break;
+    pub fn new(
+        id: usize,
+        sender: SyncSender<NodeEvent>,
+        receiver: Arc<Mutex<mpsc::Receiver<Notify>>>,
+    ) -> Worker {
+        let thread = thread::spawn(move || {
+            let mut commander_handler = CommandHandler::new(id, sender);
+            //
+            loop {
+                let notify = receiver.lock().unwrap().recv().unwrap();
+                match notify {
+                    Notify::NewJob {y} => {
+                        commander_handler.handle(y);
+                    }
+                    Notify::Command(mut cmd) => {cmd.exec();},
+                    Notify::Terminate => {
+                        println!("Worker {} was told to terminate.", id);
+                        break;
+                    }
                 }
             }
         });
@@ -39,13 +53,6 @@ impl Worker {
         Worker {
             id,
             thread: Some(thread),
-            socket: st,
-        }
-    }
-
-    fn handle_message(x: SocketAddr, y: &Message) {
-        match y.mstype {
-            _ => (),
         }
     }
 }

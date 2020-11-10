@@ -1,6 +1,5 @@
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::sync::Mutex;
 use time::PreciseTime;
 
 use crate::message::Message;
@@ -15,7 +14,6 @@ pub fn new_message_no() -> u32 {
     unsafe { MSGNO }
 }
 
-enum CacheStat {}
 #[derive(Clone)]
 pub struct MessageCacher {
     pub msgno: u32,

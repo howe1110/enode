@@ -1,19 +1,18 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use std::collections::HashMap;
 use std::io::prelude::*;
 use std::io::Cursor;
-use std::io::Result as IoResult;
 use std::net::{SocketAddr, UdpSocket};
-use std::rc::Rc;
-use std::sync::mpsc::{self, sync_channel, Receiver, SyncSender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use time::Duration;
 use time::PreciseTime;
 
-use crate::message::Message;
-use crate::messagecacher::{new_message_no, MessageCacher, MAXMESSAGELEN};
+use crate::message::MessagePtr;
+use crate::messagecacher::{new_message_no, MessageCacher};
 use crate::packet::{ACK, DATA, DATAEOF, MAXPACKETLEN};
 use crate::stats::Stats;
-use crate::worker::Notify;
+use crate::worker::{Notify};
 
 const WAITTIME: i64 = 1;
 
@@ -21,13 +20,19 @@ pub enum SendError {
     Block,
 }
 
+pub enum TrySendResult {
+    Wait,
+    Empty,
+    Ok,
+}
+
 pub struct Connection {
-    pub receiver: Option<Receiver<Message>>,
+    pub receiver: HashMap<usize, Receiver<MessagePtr>>,
     pub socket: UdpSocket,
     pub send_cache: MessageCacher,
     pub recv_cache: MessageCacher,
     pub addr: SocketAddr,
-    pub inner_sender: Rc<mpsc::Sender<Notify>>,
+    pub inner_sender: mpsc::Sender<Notify>,
     pub stats: Stats,
 }
 
@@ -35,13 +40,14 @@ impl Connection {
     pub fn new(
         socket: UdpSocket,
         addr: SocketAddr,
-        inner_sender: Rc<mpsc::Sender<Notify>>,
+        inner_sender: mpsc::Sender<Notify>,
     ) -> Connection {
         let send_cache = MessageCacher::new();
         let recv_cache = MessageCacher::new();
         let stats = Stats::new();
+        let receiver = HashMap::new();
         Connection {
-            receiver: None,
+            receiver: receiver,
             socket,
             send_cache,
             recv_cache,
@@ -51,8 +57,8 @@ impl Connection {
         }
     }
 
-    pub fn set_receiver(&mut self, receiver: Receiver<Message>) {
-        self.receiver = Some(receiver);
+    pub fn set_receiver(&mut self, id: usize, receiver: Receiver<MessagePtr>) {
+        self.receiver.insert(id, receiver);
     }
 
     pub fn on_receive<R: BufRead + Seek>(&mut self, reader: &mut R) {
@@ -64,23 +70,27 @@ impl Connection {
         }
     }
 
-    pub fn send(&mut self) {
+    pub fn send(&mut self) -> TrySendResult {
         if !self.send_cache.complete {
-            return;
+            return TrySendResult::Wait;
         }
-        if let Some(receiver) = self.receiver.as_ref() {
-            let result = receiver.try_recv();
+
+        for (k, v) in self.receiver.iter() {
+            let result = v.try_recv();
             match result {
                 Ok(message) => {
-                    self.send_message(&message);
+                    self.send_message(message);
+                    return TrySendResult::Ok;
                 }
                 Err(e) => {
-                    if e != TryRecvError::Empty {
-                        println!("Connection try_recv error {:?} .", e);
+                    if e == TryRecvError::Empty {
+                        continue;
                     }
                 }
             }
         }
+
+        TrySendResult::Empty
     }
 
     pub fn start_check(&mut self) {
@@ -128,8 +138,7 @@ impl Connection {
 
         self.inner_sender
             .send(Notify::NewJob {
-                x: self.addr,
-                y: self.recv_cache.get_message(),
+                y: Box::new(self.recv_cache.get_message()),
             })
             .unwrap();
         //
@@ -222,9 +231,9 @@ impl Connection {
         }
     }
 
-    pub fn send_message(&mut self, message: &Message) -> Result<(), SendError> {
+    pub fn send_message(&mut self, message: MessagePtr) -> Result<(), SendError> {
         let mut flags = DATA;
-        let data: Vec<u8> = bincode::serialize(message).unwrap();
+        let data: Vec<u8> = bincode::serialize(&message).unwrap();
         let mut offset: usize = 0;
         let len: usize = data.len();
         let mut eof = 0;

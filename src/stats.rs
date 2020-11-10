@@ -1,4 +1,3 @@
-use time::Duration;
 use time::PreciseTime;
 
 pub struct Stats {

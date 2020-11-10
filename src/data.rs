@@ -1,1 +1,2 @@
-pub const USERMESSAGE:u16 = 1024;
+pub const SENDMESSAGE:u16 = 1023;
+pub const SHOWMESSAGE:u16 = 1024;

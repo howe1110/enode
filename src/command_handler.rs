@@ -1,5 +1,6 @@
 use std::collections::hash_map::HashMap;
-use std::sync::mpsc::SyncSender;
+use std::net::SocketAddr;
+use std::sync::mpsc::{Sender};
 
 use crate::app::create_commnand_handler;
 use crate::command::Command;
@@ -15,18 +16,24 @@ pub struct CommandHandler {
 }
 
 impl CommandHandler {
-    pub fn new(worker_id: usize, sender: SyncSender<NodeEvent>) -> CommandHandler {
-        let net = ConnectionManager::new(worker_id, sender);
+    pub fn new(sender: Sender<NodeEvent>) -> Self {
         let command = HashMap::new();
-        CommandHandler { net, command }
+
+        let net = ConnectionManager::new(sender);
+
+        CommandHandler { command, net }
     }
 
     pub fn handle(&mut self, y: MessagePtr) {
         if let Some(command) = self.command.get_mut(&y.mstype) {
-            command.exec();
+            command.exec(y);
         } else {
-            if let Some(mut cmd) = create_commnand_handler(&self.net, y) {
-                cmd.exec();
+            let mut net = self.net.clone();
+
+            let send = move |addr: SocketAddr, message: MessagePtr| net.send_message(addr, message);
+
+            if let Some(mut cmd) = create_commnand_handler(y.mstype, send) {
+                cmd.exec(y);
                 self.command.insert(cmd.get_msgtype(), cmd);
             } else {
                 println!("No such Command.");

@@ -1,9 +1,9 @@
-use std::sync::mpsc::{self, SyncSender};
+use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
-use crate::command_handler::{CommandHandler,CommandType};
+use crate::command_handler::{CommandHandler};
 use crate::message::MessagePtr;
 use crate::node::NodeEvent;
 
@@ -13,10 +13,7 @@ pub enum Source {
 }
 
 pub enum Notify {
-    NewJob {
-        y: MessagePtr,
-    },
-    Command(CommandType),
+    NewJob { y: MessagePtr },
     Terminate,
 }
 
@@ -29,19 +26,19 @@ impl Worker {
     #[warn(unused_variables)]
     pub fn new(
         id: usize,
-        sender: SyncSender<NodeEvent>,
+        sender: Sender<NodeEvent>,
         receiver: Arc<Mutex<mpsc::Receiver<Notify>>>,
     ) -> Worker {
         let thread = thread::spawn(move || {
-            let mut commander_handler = CommandHandler::new(id, sender);
+            let mut commander_handler = CommandHandler::new(sender);
+
             //
             loop {
                 let notify = receiver.lock().unwrap().recv().unwrap();
                 match notify {
-                    Notify::NewJob {y} => {
+                    Notify::NewJob { y } => {
                         commander_handler.handle(y);
                     }
-                    Notify::Command(mut cmd) => {cmd.exec();},
                     Notify::Terminate => {
                         println!("Worker {} was told to terminate.", id);
                         break;

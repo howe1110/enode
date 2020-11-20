@@ -1,9 +1,9 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::io::prelude::*;
 use std::io::Cursor;
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::mpsc::{self};
 
 use time::Duration;
 use time::PreciseTime;
@@ -12,7 +12,7 @@ use crate::message::MessagePtr;
 use crate::messagecacher::{new_message_no, MessageCacher};
 use crate::packet::{ACK, DATA, DATAEOF, MAXPACKETLEN};
 use crate::stats::Stats;
-use crate::worker::{Notify};
+use crate::worker::Notify;
 
 const WAITTIME: i64 = 1;
 
@@ -27,7 +27,7 @@ pub enum TrySendResult {
 }
 
 pub struct Connection {
-    pub receiver: HashMap<usize, Receiver<MessagePtr>>,
+    pub buffer: VecDeque<MessagePtr>,
     pub socket: UdpSocket,
     pub send_cache: MessageCacher,
     pub recv_cache: MessageCacher,
@@ -45,9 +45,9 @@ impl Connection {
         let send_cache = MessageCacher::new();
         let recv_cache = MessageCacher::new();
         let stats = Stats::new();
-        let receiver = HashMap::new();
+        let buffer = VecDeque::with_capacity(2048);
         Connection {
-            receiver: receiver,
+            buffer,
             socket,
             send_cache,
             recv_cache,
@@ -57,8 +57,8 @@ impl Connection {
         }
     }
 
-    pub fn set_receiver(&mut self, id: usize, receiver: Receiver<MessagePtr>) {
-        self.receiver.insert(id, receiver);
+    pub fn push_message(&mut self, message: MessagePtr) {
+        self.buffer.push_front(message);
     }
 
     pub fn on_receive<R: BufRead + Seek>(&mut self, reader: &mut R) {
@@ -75,21 +75,9 @@ impl Connection {
             return TrySendResult::Wait;
         }
 
-        for (k, v) in self.receiver.iter() {
-            let result = v.try_recv();
-            match result {
-                Ok(message) => {
-                    self.send_message(message);
-                    return TrySendResult::Ok;
-                }
-                Err(e) => {
-                    if e == TryRecvError::Empty {
-                        continue;
-                    }
-                }
-            }
+        if let Some(message) = self.buffer.pop_back() {
+            self.send_message(message);
         }
-
         TrySendResult::Empty
     }
 

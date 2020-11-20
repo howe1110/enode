@@ -39,7 +39,9 @@ impl Stats {
 
     pub fn show(&mut self, duration: usize) {
         println!(
-            "send rate: {}, receive rate: {} .",
+            "total: receive {}, send {}, send rate: {}, receive rate: {} .",
+            self.receive_count,
+            self.send_count,
             self.send_count_for_rate / duration,
             self.receive_count_for_rate / duration
         );

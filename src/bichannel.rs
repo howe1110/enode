@@ -1,25 +1,32 @@
-use std::sync::mpsc::{self, sync_channel,Receiver, Sender, SyncSender, TryRecvError};
+use std::sync::mpsc::{
+    self, channel, sync_channel, Receiver, RecvError, SendError, Sender, SyncSender,
+};
 
 pub struct BiChannel<T> {
-    sender: SyncSender<T>,
+    sender: Sender<T>,
     receiver: Receiver<T>,
 }
 
-impl<T> BiChannel<T> -> (BiChannel<T>, BiChannel<T>) {
-    pub channel() {
-        let (sender1, receiver1) = sync_channel(0);
+impl<T> BiChannel<T> {
+    pub fn channel() -> (BiChannel<T>, BiChannel<T>) {
+        let (sender1, receiver1) = channel();
         let (sender2, receiver2) = channel();
-        let local = BiChannel1 {
-            sender:sender1,
-            receiver:receiver2,
-        }
+        let local = BiChannel {
+            sender: sender1,
+            receiver: receiver2,
+        };
+
         let peer = BiChannel {
-            sender:sender2,
-            receiver:receiver1,
-        }
+            sender: sender2,
+            receiver: receiver1,
+        };
+
         (local, peer)
     }
     pub fn send(&self, t: T) -> Result<(), SendError<T>> {
-        self.sender.send(t) ?
+        self.sender.send(t)?
+    }
+    pub fn recv(&self) -> Result<T, RecvError> {
+        self.receiver.recv()?
     }
 }

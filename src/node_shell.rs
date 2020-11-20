@@ -10,7 +10,6 @@ use std::thread;
 use crate::message::Message;
 use crate::node::{Node, NodeEvent};
 use crate::worker::{Notify, Worker};
-use crate::send_message::SendMessage;
 
 fn send2peer(paras: &[&str], sender: Sender<Notify>) -> bool {
     if paras.len() != 2 {
@@ -20,11 +19,13 @@ fn send2peer(paras: &[&str], sender: Sender<Notify>) -> bool {
     if let Ok(peer) = paras[0].parse::<SocketAddr>() {
         println!("{:?}", peer);
 
-        let message = Message::create_man_message(paras[1]);
+        let message = Message::create_man_message(peer, paras[1]);
 
-        sender.send(Notify::NewJob {
-            y: Box::new(message),
-        }).unwrap();
+        sender
+            .send(Notify::NewJob {
+                y: Box::new(message),
+            })
+            .unwrap();
     }
 
     true
@@ -41,7 +42,7 @@ fn init_user_fn() -> HashMap<String, fn(&[&str], Sender<Notify>) -> bool> {
 
 pub struct NodeShell {
     pub peer: Option<String>,
-    sender: SyncSender<NodeEvent>, //node_shell->worker.
+    sender: Sender<NodeEvent>, //node_shell->worker.
     inner_sender: Sender<Notify>,  //connection -> worker.
     handle: Option<thread::JoinHandle<()>>,
     pub workers: Vec<Worker>,
@@ -49,7 +50,7 @@ pub struct NodeShell {
 
 impl NodeShell {
     pub fn new(size: usize, addr: SocketAddr) -> NodeShell {
-        let (sender, receiver) = sync_channel(0);
+        let (sender, receiver) = mpsc::channel();
 
         let (inner_sender, inner_receiver) = mpsc::channel();
 
@@ -111,6 +112,15 @@ impl NodeShell {
         self.peer = Some(String::from(peer));
     }
 
+    pub fn send_message(&mut self, message: &str, addr: &str) {
+        let message = Message::create_send_message(addr.parse().unwrap(), message);
+        self.inner_sender
+            .send(Notify::NewJob {
+                y: Box::new(message),
+            })
+            .unwrap();
+    }
+
     pub fn sendfile(&self, file: &str) {}
 }
 
@@ -140,22 +150,3 @@ impl Drop for NodeShell {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    const SERVER_ADDR1: &'static str = "127.0.0.1:30022";
-    const SERVER_ADDR2: &'static str = "127.0.0.1:30023";
-
-    const TESTSTRING:&'static str = "hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.hello world.";
-    #[test]
-    fn send_1_k_message() {
-        let mut node_1 = NodeShell::new(2, SERVER_ADDR1.parse().unwrap());
-
-        let sender = node_1.connect(SERVER_ADDR2.parse().unwrap());
-
-        for _ in 0.. {
-            let message = Message::create_man_message(TESTSTRING);
-            sender.send(message).unwrap();
-        }
-    }
-}

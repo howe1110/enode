@@ -28,26 +28,22 @@ pub enum NodeReceiveResult {
 }
 
 pub enum NodeEvent {
-    Connect(ConnectEvent),
+    Message(MessageEvent),
     Terminate,
 }
 
-pub struct ConnectEvent {
+pub struct MessageEvent {
     id: usize,
     addr: SocketAddr,
-    receiver: Receiver<MessagePtr>,
+    message: MessagePtr,
 }
 
-pub struct UserMessageEvent {
-    id: usize,
-    addr: SocketAddr,
-}
-
-impl ConnectEvent {
-    pub fn new(id: usize, addr: SocketAddr, receiver: Receiver<MessagePtr>) -> ConnectEvent {
-        ConnectEvent { id, addr, receiver }
+impl MessageEvent {
+    pub fn new(id: usize, addr: SocketAddr, message: MessagePtr) -> Self {
+        MessageEvent { id, addr, message }
     }
 }
+
 pub struct Node {
     socket: UdpSocket,
     inner_sender: mpsc::Sender<Notify>,
@@ -107,21 +103,26 @@ impl Node {
         }
     }
 
-    fn handle_conn_event(&mut self, id: usize, addr: SocketAddr, receiver: Receiver<MessagePtr>) {
-        let connect = self.connections.entry(addr).or_insert(Connection::new(
+    fn handle_message_event(&mut self, id: usize, addr: SocketAddr, message: MessagePtr) {
+        if let Some(conn) = self.connections.get_mut(&addr) {
+            conn.push_message(message);
+            return;
+        }
+        let mut conn = Connection::new(
             self.socket.try_clone().unwrap(),
             addr,
             self.inner_sender.clone(),
-        ));
-        connect.set_receiver(id, receiver);
+        );
+        conn.push_message(message);
+        self.connections.insert(addr, conn);
     }
 
     fn handle_node_event(&mut self) -> Result<(), HandleNodeEventResult> {
         let result = self.connect_receiver.try_recv();
         match result {
             Ok(e) => match e {
-                NodeEvent::Connect(conn) => {
-                    self.handle_conn_event(conn.id, conn.addr, conn.receiver);
+                NodeEvent::Message(message) => {
+                    self.handle_message_event(message.id, message.addr, message.message);
                     Ok(())
                 }
                 NodeEvent::Terminate => Err(HandleNodeEventResult::Exit),
@@ -202,19 +203,4 @@ impl Drop for Node {
     fn drop(&mut self) {
         self.stop();
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::thread::{self, yield_now};
-
-    const SERVER_ADDR: &'static str = "127.0.0.1:30022";
-
-    fn server_address() -> SocketAddr {
-        SERVER_ADDR.parse().unwrap()
-    }
-
-    #[test]
-    fn send_works() {}
 }

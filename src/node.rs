@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use std::thread::yield_now;
-use std::time;
 use std::time::Duration;
 
 use crate::connection::Connection;
@@ -129,12 +127,12 @@ impl Node {
             self.start_check();
 
             if idle {
-                thread::sleep_ms(100);
+                thread::sleep(Duration::from_millis(100));
             }
         }
     }
 
-    fn handle_message_event(&mut self, id: usize, addr: SocketAddr, message: MessagePtr) {
+    fn handle_message_event(&mut self, _id: usize, addr: SocketAddr, message: MessagePtr) {
         if let Some(conn) = self.connections.get_mut(&addr) {
             conn.push_message(message);
             return;
@@ -146,23 +144,6 @@ impl Node {
         );
         conn.push_message(message);
         self.connections.insert(addr, conn);
-    }
-
-    fn start_send(&mut self) -> bool {
-        let mut is_idle = false;
-        if self.connections.is_empty() {
-            is_idle = true;
-        }
-
-        for (_, v) in self.connections.iter_mut() {
-            match v.send() {
-                TrySendResult::Empty => {
-                    is_idle = true;
-                }
-                _ => (),
-            }
-        }
-        is_idle
     }
 
     fn start_check(&mut self) {

@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::net::SocketAddr;
-use std::sync::mpsc::{self, sync_channel, Sender, SyncSender};
+use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
@@ -121,7 +121,7 @@ impl NodeShell {
             .unwrap();
     }
 
-    pub fn sendfile(&self, file: &str) {}
+    pub fn sendfile(&self, _file: &str) {}
 }
 
 impl Drop for NodeShell {

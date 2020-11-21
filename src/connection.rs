@@ -143,7 +143,7 @@ impl Connection {
     }
 
     fn handle_data_ack<R: BufRead + Seek>(&mut self, _flag: u16, reader: &mut R) {
-        let msgno = reader.read_u32::<BigEndian>().unwrap(); //消息号
+        let _msgno = reader.read_u32::<BigEndian>().unwrap(); //消息号
         let msgstate = reader.read_u8().unwrap(); //接收状态
         match msgstate {
             0 => {
@@ -185,8 +185,8 @@ impl Connection {
     }
 
     fn send_active(&mut self) {
-        let mut eof = 0;
-        let mut flags = DATA;
+        let mut eof;
+        let mut flags;
 
         for offset in self.send_cache.get_offsets().iter() {
             if MAXPACKETLEN >= (self.send_cache.eof - offset) {
@@ -220,8 +220,7 @@ impl Connection {
         }
     }
 
-    pub fn send_message(&mut self, message: MessagePtr) -> Result<(), SendError> {
-        let mut flags = DATA;
+    pub fn send_message(&mut self, message: MessagePtr) {
         let data: Vec<u8> = bincode::serialize(&message).unwrap();
         let mut offset: usize = 0;
         let len: usize = data.len();
@@ -250,7 +249,5 @@ impl Connection {
         self.send_active();
 
         self.stats.send_increase();
-
-        Ok(())
     }
 }

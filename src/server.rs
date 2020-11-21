@@ -15,7 +15,7 @@ pub fn start_server(addr: SocketAddr) {
     loop {
         let result = st.recv_from(&mut buf);
         match result {
-            Ok((l, src_addr)) => {
+            Ok((_, src_addr)) => {
                 //
                 let buf = vec![];
                 let mut writer = Cursor::new(buf); //

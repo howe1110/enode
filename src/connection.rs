@@ -72,11 +72,12 @@ impl Connection {
 
     pub fn send(&mut self) -> TrySendResult {
         if !self.send_cache.complete {
-            return TrySendResult::Wait;
+            return TrySendResult::Ok;
         }
 
         if let Some(message) = self.buffer.pop_back() {
             self.send_message(message);
+            return TrySendResult::Ok;
         }
         TrySendResult::Empty
     }

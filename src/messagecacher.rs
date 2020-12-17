@@ -19,7 +19,6 @@ pub struct MessageCacher {
     pub msgno: u32,
     pub complete: bool,
     pub start: PreciseTime,
-    //data: [u8; MAXMESSAGELEN],
     pub data: Box<Vec<u8>>,
     pub offset: usize, //最小偏移
     pub eof: usize,    //终点值

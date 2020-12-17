@@ -8,6 +8,7 @@ use std::sync::mpsc::{self};
 use time::Duration;
 use time::PreciseTime;
 
+use crate::emessage::{EMessage, EMessagePtr};
 use crate::message::MessagePtr;
 use crate::messagecacher::{new_message_no, MessageCacher};
 use crate::packet::{ACK, DATA, DATAEOF, MAXPACKETLEN};
@@ -27,7 +28,7 @@ pub enum TrySendResult {
 }
 
 pub struct Connection {
-    pub buffer: VecDeque<MessagePtr>,
+    pub buffer: VecDeque<EMessagePtr>,
     pub socket: UdpSocket,
     pub send_cache: MessageCacher,
     pub recv_cache: MessageCacher,
@@ -57,7 +58,7 @@ impl Connection {
         }
     }
 
-    pub fn push_message(&mut self, message: MessagePtr) {
+    pub fn push_message(&mut self, message: EMessagePtr) {
         self.buffer.push_front(message);
     }
 
@@ -76,7 +77,7 @@ impl Connection {
         }
 
         if let Some(message) = self.buffer.pop_back() {
-            self.send_message(message);
+            self.send_message(message.payload);
             return TrySendResult::Ok;
         }
         TrySendResult::Empty
@@ -127,7 +128,10 @@ impl Connection {
 
         self.inner_sender
             .send(Notify::NewJob {
-                y: Box::new(self.recv_cache.get_message()),
+                y: Box::new(EMessage::construct_emessage(
+                    self.addr,
+                    self.recv_cache.get_message(),
+                )),
             })
             .unwrap();
         //

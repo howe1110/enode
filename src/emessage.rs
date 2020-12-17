@@ -1,6 +1,9 @@
 use std::net::SocketAddr;
 
-use crate::message::Message;
+use crate::message::{Message};
+
+
+pub type EMessagePtr = Box<EMessage>;
 
 pub struct EMessage {
     pub addr: SocketAddr,

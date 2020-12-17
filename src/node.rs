@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::connection::Connection;
 use crate::connection::TrySendResult;
-use crate::message::MessagePtr;
+use crate::emessage::EMessagePtr;
 use crate::worker::Notify;
 
 pub enum SendError {
@@ -29,20 +29,8 @@ pub enum NodeReceiveResult {
 }
 
 pub enum NodeEvent {
-    Message(MessageEvent),
+    Message(EMessagePtr),
     Terminate,
-}
-
-pub struct MessageEvent {
-    id: usize,
-    addr: SocketAddr,
-    message: MessagePtr,
-}
-
-impl MessageEvent {
-    pub fn new(id: usize, addr: SocketAddr, message: MessagePtr) -> Self {
-        MessageEvent { id, addr, message }
-    }
 }
 
 pub struct Node {
@@ -60,7 +48,6 @@ impl Node {
     ) -> Node {
         let st = UdpSocket::bind(addr).expect("couldn't bind to address");
         st.set_nonblocking(true).unwrap();
-        //st.set_read_timeout(Some(Duration::from_micros(1)));
 
         let connections = HashMap::new();
 
@@ -81,7 +68,7 @@ impl Node {
             match result {
                 Ok(e) => match e {
                     NodeEvent::Message(message) => {
-                        self.handle_message_event(message.id, message.addr, message.message);
+                        self.handle_message_event(message);
                         idle = false;
                     }
                     NodeEvent::Terminate => break,
@@ -132,16 +119,17 @@ impl Node {
         }
     }
 
-    fn handle_message_event(&mut self, _id: usize, addr: SocketAddr, message: MessagePtr) {
-        if let Some(conn) = self.connections.get_mut(&addr) {
+    fn handle_message_event(&mut self, message: EMessagePtr) {
+        if let Some(conn) = self.connections.get_mut(&message.addr) {
             conn.push_message(message);
             return;
         }
         let mut conn = Connection::new(
             self.socket.try_clone().unwrap(),
-            addr,
+            message.addr,
             self.inner_sender.clone(),
         );
+        let addr = message.addr;
         conn.push_message(message);
         self.connections.insert(addr, conn);
     }

@@ -1,19 +1,18 @@
-use std::net::SocketAddr;
-
 use crate::command::Command;
 use crate::data::{SENDMESSAGE, SHOWMESSAGE};
-use crate::message::{MessagePtr, MSGTYPE};
+use crate::emessage::EMessagePtr;
+use crate::message::MSGTYPE;
 
 pub struct SendMessage<F>
 where
-    F: FnMut(SocketAddr, MessagePtr) + Send + 'static,
+    F: FnMut(EMessagePtr) + Send + 'static,
 {
     send: F,
 }
 
 impl<F> SendMessage<F>
 where
-    F: FnMut(SocketAddr, MessagePtr) + Send + 'static,
+    F: FnMut(EMessagePtr) + Send + 'static,
 {
     pub fn new(send: F) -> SendMessage<F> {
         SendMessage { send }
@@ -22,15 +21,17 @@ where
 
 impl<F> Command for SendMessage<F>
 where
-    F: FnMut(SocketAddr, MessagePtr) + Send + 'static,
+    F: FnMut(EMessagePtr) + Send + 'static,
 {
-    fn exec(&mut self, message: MessagePtr) {
+    fn exec(&mut self, message: EMessagePtr) {
         let mut message = message;
-        message.mstype = SHOWMESSAGE;
-        (self.send)(message.addr, message);
+        message.payload.mstype = SHOWMESSAGE;
+        (self.send)(message);
     }
 
     fn get_msgtype(&self) -> MSGTYPE {
         SENDMESSAGE
     }
 }
+
+

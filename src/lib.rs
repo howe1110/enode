@@ -22,3 +22,4 @@ pub mod server;
 pub mod show_message;
 pub mod stats;
 pub mod worker;
+pub mod addr_server;

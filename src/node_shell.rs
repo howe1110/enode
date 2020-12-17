@@ -7,11 +7,13 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
+use crate::emessage::EMessage;
 use crate::message::Message;
 use crate::node::{Node, NodeEvent};
 use crate::worker::{Notify, Worker};
+use crate::addr_server::new_message_my;
 
-fn send2peer(paras: &[&str], sender: Sender<Notify>) -> bool {
+fn notify_my_addr(paras: &[&str], sender: Sender<Notify>) -> bool {
     if paras.len() != 2 {
         return false;
     }
@@ -19,7 +21,10 @@ fn send2peer(paras: &[&str], sender: Sender<Notify>) -> bool {
     if let Ok(peer) = paras[0].parse::<SocketAddr>() {
         println!("{:?}", peer);
 
-        let message = Message::create_man_message(peer, paras[1]);
+
+        let message = new_message_my();
+
+        let message = EMessage::construct_emessage(peer, message);
 
         sender
             .send(Notify::NewJob {
@@ -34,16 +39,16 @@ fn send2peer(paras: &[&str], sender: Sender<Notify>) -> bool {
 fn init_user_fn() -> HashMap<String, fn(&[&str], Sender<Notify>) -> bool> {
     let mut userfn = HashMap::new();
     userfn.insert(
-        String::from("sw"),
-        send2peer as fn(&[&str], Sender<Notify>) -> bool,
+        String::from("nl"),
+        notify_my_addr as fn(&[&str], Sender<Notify>) -> bool,
     );
     userfn
 }
 
 pub struct NodeShell {
     pub peer: Option<String>,
-    sender: Sender<NodeEvent>, //node_shell->worker.
-    inner_sender: Sender<Notify>,  //connection -> worker.
+    sender: Sender<NodeEvent>,    //node_shell->worker.
+    inner_sender: Sender<Notify>, //connection -> worker.
     handle: Option<thread::JoinHandle<()>>,
     pub workers: Vec<Worker>,
 }
@@ -113,7 +118,8 @@ impl NodeShell {
     }
 
     pub fn send_message(&mut self, message: &str, addr: &str) {
-        let message = Message::create_send_message(addr.parse().unwrap(), message);
+        let message = Message::create_send_message(0, 1, message);
+        let message = EMessage::construct_emessage(addr.parse().unwrap(), message);
         self.inner_sender
             .send(Notify::NewJob {
                 y: Box::new(message),
@@ -149,4 +155,3 @@ impl Drop for NodeShell {
         }
     }
 }
-

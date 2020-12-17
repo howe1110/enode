@@ -3,8 +3,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
-use crate::command_handler::{CommandHandler};
-use crate::message::MessagePtr;
+use crate::command_handler::{CommandHandler, CommandType};
+use crate::emessage::EMessagePtr;
+
 use crate::node::NodeEvent;
 
 pub enum Source {
@@ -13,7 +14,7 @@ pub enum Source {
 }
 
 pub enum Notify {
-    NewJob { y: MessagePtr },
+    NewJob { y: EMessagePtr },
     Terminate,
 }
 

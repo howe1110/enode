@@ -1,8 +1,6 @@
-use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 
-use crate::message::MessagePtr;
-use crate::node::MessageEvent;
+use crate::emessage::EMessagePtr;
 use crate::node::NodeEvent;
 
 #[derive(Clone, Debug)]
@@ -15,8 +13,8 @@ impl ConnectionManager {
         ConnectionManager { sender }
     }
 
-    pub fn send_message(&mut self, addr: SocketAddr, message: MessagePtr) {
-        let message = NodeEvent::Message(MessageEvent::new(0, addr, message));
+    pub fn send_message(&mut self, message: EMessagePtr) {
+        let message = NodeEvent::Message(message);
         self.sender.send(message).unwrap();
     }
 }

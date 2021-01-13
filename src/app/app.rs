@@ -1,10 +1,9 @@
-use crate::addr_server::AddrServer;
-use crate::command_handler::CommandType;
-use crate::data::NODEIDTYPE;
-use crate::data::*;
-use crate::emessage::EMessagePtr;
-use crate::send_message::SendMessage;
-use crate::show_message::ShowMessage;
+use crate::framework::CommandType;
+use crate::app::*;
+use crate::net::EMessagePtr;
+use crate::app::SendMessage;
+use crate::app::ShowMessage;
+use crate::net::NODEIDTYPE;
 
 pub static mut NODEID: NODEIDTYPE = 0;
 
@@ -24,7 +23,6 @@ where
     match msgtype {
         SHOWMESSAGE => Some(Box::new(ShowMessage::new())),
         SENDMESSAGE => Some(Box::new(SendMessage::new(send))),
-        ADDRMESSAGE => Some(Box::new(AddrServer::new(send))),
         _ => None,
     }
 }

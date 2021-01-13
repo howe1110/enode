@@ -2,8 +2,8 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use time::PreciseTime;
 
-use crate::message::Message;
-use crate::packet::DATAEOF;
+use crate::net::Message;
+use crate::net::DATAEOF;
 
 pub const MAXMESSAGELEN: usize = 65536;
 

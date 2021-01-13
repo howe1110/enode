@@ -1,7 +1,6 @@
-use crate::command::Command;
-use crate::data::SHOWMESSAGE;
-use crate::emessage::{EMessagePtr };
-use crate::message::MSGTYPE;
+use crate::app::SHOWMESSAGE;
+use crate::framework::Command;
+use crate::net::{EMessagePtr, MSGTYPE};
 
 pub struct ShowMessage {}
 
@@ -12,8 +11,7 @@ impl ShowMessage {
 }
 
 impl Command for ShowMessage {
-    fn exec(&mut self, _message: EMessagePtr) {
-    }
+    fn exec(&mut self, _message: EMessagePtr) {}
 
     fn get_msgtype(&self) -> MSGTYPE {
         SHOWMESSAGE

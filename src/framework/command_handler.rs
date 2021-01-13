@@ -1,11 +1,11 @@
 use std::collections::hash_map::HashMap;
-use std::sync::mpsc::{Sender};
+use std::sync::mpsc::{SyncSender};
 
+use crate::framework::command::Command;
+use crate::net::connect_manager::ConnectionManager;
+use crate::net::EMessagePtr;
+use crate::net::NodeEvent;
 use crate::app::create_commnand_handler;
-use crate::command::Command;
-use crate::connect_manager::ConnectionManager;
-use crate::emessage::EMessagePtr;
-use crate::node::NodeEvent;
 
 pub type CommandType = Box<dyn Command + Send>;
 
@@ -15,7 +15,7 @@ pub struct CommandHandler {
 }
 
 impl CommandHandler {
-    pub fn new(sender: Sender<NodeEvent>) -> Self {
+    pub fn new(sender: SyncSender<NodeEvent>) -> Self {
         let command = HashMap::new();
 
         let net = ConnectionManager::new(sender);

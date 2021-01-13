@@ -1,15 +1,15 @@
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 
-use crate::emessage::EMessagePtr;
-use crate::node::NodeEvent;
+use crate::net::emessage::EMessagePtr;
+use crate::net::node::NodeEvent;
 
 #[derive(Clone, Debug)]
 pub struct ConnectionManager {
-    sender: Sender<NodeEvent>, //node_shell->worker.
+    sender: SyncSender<NodeEvent>, //node_shell->worker.
 }
 
 impl ConnectionManager {
-    pub fn new(sender: Sender<NodeEvent>) -> ConnectionManager {
+    pub fn new(sender: SyncSender<NodeEvent>) -> ConnectionManager {
         ConnectionManager { sender }
     }
 

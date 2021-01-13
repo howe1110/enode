@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
 use std::time::Duration;
 
-use crate::connection::Connection;
-use crate::connection::TrySendResult;
-use crate::emessage::EMessagePtr;
-use crate::worker::Notify;
+use crate::framework::worker::Notify;
+use crate::net::emessage::EMessagePtr;
+use crate::net::{Connection, TrySendResult};
+
+pub type NODEIDTYPE = u32;
 
 pub enum SendError {
     Block,
@@ -35,7 +36,7 @@ pub enum NodeEvent {
 
 pub struct Node {
     socket: UdpSocket,
-    inner_sender: mpsc::Sender<Notify>,
+    inner_sender: mpsc::SyncSender<Notify>,
     connections: HashMap<SocketAddr, Connection>,
     pub connect_receiver: Receiver<NodeEvent>,
 }
@@ -44,7 +45,7 @@ impl Node {
     pub fn new(
         addr: SocketAddr,
         connect_receiver: Receiver<NodeEvent>,
-        inner_sender: Sender<Notify>,
+        inner_sender: SyncSender<Notify>,
     ) -> Node {
         let st = UdpSocket::bind(addr).expect("couldn't bind to address");
         st.set_nonblocking(true).unwrap();
@@ -80,6 +81,7 @@ impl Node {
             match result {
                 Ok((l, src_addr)) => {
                     let packet: &[u8] = &buf[0..l];
+
                     if let Some(conn) = self.connections.get_mut(&src_addr) {
                         conn.on_receive(&mut Cursor::new(packet));
                     } else {
@@ -92,7 +94,7 @@ impl Node {
                         self.connections.insert(src_addr, conn);
                     }
                     idle = false;
-                    block_count = 1000;//优化CPU使用，有消息时继续循环处理，防止因为暂时收不到消息而进入休眠。
+                    block_count = 1000; //优化CPU使用，有消息时继续循环处理，防止因为暂时收不到消息而进入休眠。
                 }
                 Err(_) => {
                     if block_count > 0 {

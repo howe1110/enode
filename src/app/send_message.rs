@@ -1,7 +1,6 @@
-use crate::command::Command;
-use crate::data::{SENDMESSAGE, SHOWMESSAGE};
-use crate::emessage::EMessagePtr;
-use crate::message::MSGTYPE;
+use crate::app::{SENDMESSAGE, SHOWMESSAGE};
+use crate::framework::Command;
+use crate::net::{EMessagePtr, MSGTYPE};
 
 pub struct SendMessage<F>
 where
@@ -33,5 +32,3 @@ where
         SENDMESSAGE
     }
 }
-
-

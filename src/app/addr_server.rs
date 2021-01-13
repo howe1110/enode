@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::app;
+use crate::app::{ADDRMESSAGE};
+use crate::net::NODEIDTYPE;
 use crate::command::Command;
-use crate::data::{ADDRMESSAGE, NODEIDTYPE};
-use crate::emessage::{EMessage, EMessagePtr};
-use crate::message::{Message, MSGTYPE};
+use crate::net::{EMessage, EMessagePtr, Message, MSGTYPE};
 
 const PUT_ME: MSGTYPE = 0;
 const PUT_OTH: MSGTYPE = 1;
@@ -78,7 +78,6 @@ where
                 addr = message.addr;
             }
         }
-        
         println!("Receive addr notify from {}", message.addr);
 
         self.addrs.insert(message.payload.sendid, addr);

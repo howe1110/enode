@@ -1,6 +1,4 @@
-use crate::message::MSGTYPE;
-
-pub type NODEIDTYPE = u32;
+use crate::net::MSGTYPE;
 
 pub const SENDMESSAGE:MSGTYPE = 1023;
 pub const SHOWMESSAGE:MSGTYPE = 1024;

@@ -8,12 +8,13 @@ use std::sync::mpsc::{self};
 use time::Duration;
 use time::PreciseTime;
 
-use crate::emessage::{EMessage, EMessagePtr};
-use crate::message::MessagePtr;
-use crate::messagecacher::{new_message_no, MessageCacher};
-use crate::packet::{ACK, DATA, DATAEOF, MAXPACKETLEN};
-use crate::stats::Stats;
-use crate::worker::Notify;
+use crate::framework::Notify;
+use crate::net::emessage::{EMessage, EMessagePtr};
+use crate::net::message::MessagePtr;
+use crate::net::messagecacher::{new_message_no, MessageCacher};
+use crate::net::packet::{ACK, DATA, DATAEOF, MAXPACKETLEN};
+use crate::stats::stats::Stats;
+use crate::utility::Buffer;
 
 const WAITTIME: i64 = 1;
 
@@ -28,12 +29,12 @@ pub enum TrySendResult {
 }
 
 pub struct Connection {
-    pub buffer: VecDeque<EMessagePtr>,
+    pub buffer: Buffer<EMessagePtr>,
     pub socket: UdpSocket,
     pub send_cache: MessageCacher,
     pub recv_cache: MessageCacher,
     pub addr: SocketAddr,
-    pub inner_sender: mpsc::Sender<Notify>,
+    pub inner_sender: mpsc::SyncSender<Notify>,
     pub stats: Stats,
 }
 
@@ -41,12 +42,12 @@ impl Connection {
     pub fn new(
         socket: UdpSocket,
         addr: SocketAddr,
-        inner_sender: mpsc::Sender<Notify>,
+        inner_sender: mpsc::SyncSender<Notify>,
     ) -> Connection {
         let send_cache = MessageCacher::new();
         let recv_cache = MessageCacher::new();
         let stats = Stats::new();
-        let buffer = VecDeque::with_capacity(2048);
+        let buffer = Buffer::with_capacity(2048);
         Connection {
             buffer,
             socket,
@@ -59,7 +60,9 @@ impl Connection {
     }
 
     pub fn push_message(&mut self, message: EMessagePtr) {
-        self.buffer.push_front(message);
+        if self.buffer.is_full() == false {
+            self.buffer.push_front(message);
+        }
     }
 
     pub fn on_receive<R: BufRead + Seek>(&mut self, reader: &mut R) {

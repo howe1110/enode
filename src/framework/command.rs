@@ -1,4 +1,4 @@
-use crate::emessage::{EMessagePtr};
+use crate::net::{EMessagePtr};
 
 pub trait Command {
     fn get_msgtype(&self) -> u16;

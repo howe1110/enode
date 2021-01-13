@@ -1,12 +1,12 @@
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, SyncSender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
-use crate::command_handler::{CommandHandler, CommandType};
-use crate::emessage::EMessagePtr;
+use crate::framework::{CommandHandler};
+use crate::net::EMessagePtr;
 
-use crate::node::NodeEvent;
+use crate::net::NodeEvent;
 
 pub enum Source {
     Local,
@@ -27,7 +27,7 @@ impl Worker {
     #[warn(unused_variables)]
     pub fn new(
         id: usize,
-        sender: Sender<NodeEvent>,
+        sender: SyncSender<NodeEvent>,
         receiver: Arc<Mutex<mpsc::Receiver<Notify>>>,
     ) -> Worker {
         let thread = thread::spawn(move || {
